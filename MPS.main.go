@@ -10,24 +10,51 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/mux"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var db, _ = sql.Open("sqlite3", "songdb.sqlite")
 var songlistSet = false
 var songlist []string
 
+const htmlBaseHeader = "<html>\n<body>\n"
+const htmlBaseFooter = "</body>\n</html>"
+const nl = "\n"
+const hnl = "</br>" + nl
+
 // https://jaxenter.de/restful-rest-api-go-golang-68845
 func main() {
 	//storetest()
+	initDB()
 	rebuildFileList()
 
-	http.HandleFunc("/", netSendRandomSong)
-	http.HandleFunc("/init", netRebuildFileList)
-	http.ListenAndServe(":80", nil)
+	r := mux.NewRouter()
+
+	r.HandleFunc("/", netSendBase)
+	r.HandleFunc("/random", netSendRandomSong)
+	r.HandleFunc("/init", netRebuildFileList)
+	r.HandleFunc("/song/data/{id}", netSendSongDataByID)
+	r.HandleFunc("/song/file/{id}", netSendSongByID)
+
+	http.ListenAndServe(":80", r)
+}
+
+func initDB() {
+	if selI("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='songs';") < 1 {
+		db.Exec("CREATE TABLE songs (id INTEGER not null primary key autoincrement, path TEXT unique, name TEXT, play INTEGER);")
+	}
 }
 
 // https://stackoverflow.com/questions/24116147/how-to-download-file-in-browser-from-go-serverv
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
+func netSendBase(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte(htmlBaseHeader +
+		link("random", "/random") + hnl +
+		//link("init", "/init") + hnl +
+		htmlBaseFooter))
+}
 
 func netSendRandomSong(w http.ResponseWriter, r *http.Request) {
 	// Get filename from DB
@@ -57,9 +84,10 @@ func getNextSongName() string {
 	return ""
 }
 
+// https://golangcode.com/get-a-url-parameter-from-a-request/
 func netRebuildFileList(w http.ResponseWriter, r *http.Request) {
 	//w.Write([]byte("Rebuilding of file list database started. This will take a while."))
-	w.Write([]byte(rebuildFileList()))
+	w.Write([]byte(htmlBaseHeader + link("Zurück!", "/") + hnl + div(rebuildFileList()) + htmlBaseFooter))
 }
 
 func rebuildFileList() string {
@@ -74,11 +102,50 @@ func rebuildFileList() string {
 				return err
 			}
 			if filepath.Ext(path) == ".mp3" {
-				allFilesStr += path + "\n"
+				allFilesStr += path + "</br>\n"
 				songlist = append(songlist, path)
+				db.Exec("INSERT OR IGNORE INTO songs (path, name) VALUES (?,?)", path, filepath.Base(path))
 			}
 			return nil
 		})
 	songlistSet = true
 	return allFilesStr
+}
+
+func netSendSongDataByID(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := vars["id"]
+	name := selS("select name from songs where id = ?", id)
+	w.Write([]byte(name))
+}
+
+func netSendSongByID(w http.ResponseWriter, r *http.Request) {
+	//vars := mux.Vars(r)
+	//id, _ := strconv.Atoi(vars["id"])
+}
+
+func link(text string, target string) string {
+	return "<a href=\"" + target + "\">" + text + "</a>"
+}
+
+func div(content string) string {
+	return "<div>" + nl + content + nl + "</div>" + nl
+}
+
+func selS(statement string, args ...interface{}) string {
+	row := db.QueryRow(statement, args...)
+	e := row.Err()
+	if e != nil {
+		return e.Error()
+	}
+	var value string
+	row.Scan(&value)
+	return value
+}
+
+func selI(statement string) int {
+	row := db.QueryRow(statement)
+	var value int
+	row.Scan(&value)
+	return value
 }
