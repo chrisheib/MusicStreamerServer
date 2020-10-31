@@ -34,6 +34,7 @@ func main() {
 
 	r.HandleFunc("/", netSendBase)
 	r.HandleFunc("/random", netSendRandomSong)
+	r.HandleFunc("/randomID", netSendRandomID)
 	r.HandleFunc("/init", netRebuildFileList)
 	r.HandleFunc("/song/data/{id}", netSendSongDataByID)
 	r.HandleFunc("/song/file/{id}", netSendSongByID)
@@ -72,6 +73,11 @@ func netSendRandomSong(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "audio/mpeg")
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	io.Copy(w, fileContent)
+}
+
+func netSendRandomID(w http.ResponseWriter, r *http.Request) {
+	id := selS("select id from songs ORDER BY RANDOM() LIMIT 1")
+	w.Write([]byte(id))
 }
 
 func getNextSongName() string {
